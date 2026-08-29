@@ -1,0 +1,39 @@
+# Mirrors QARA_SVC_CMPL's own application-secure.yaml (JWT bearer +
+# Keycloak JWKS structure) — deliberately NOT OPC_SVC_ACCNT's (which also
+# sets `token.roles-claims` to feed Micronaut's own RolesFinder for
+# @Secured("role")-style annotations). Role checks here are 100% manual
+# (see RequestIdentity.extractRoles, which reads the JWT's own
+# resource_access.<clientId>.roles claim directly off the Authentication's
+# attributes) — same reason QARA_SVC_CMPL's own file has no roles-claims
+# line either: `@Secured` can't express this service's real requirement
+# ("gate on a role only when a JWT is present at all — allow the CLI's own
+# unauthenticated calls through untouched" — see AccessControl.java).
+#
+# The intercept-url-map below permits ANY request to /v1/** at this coarse
+# layer (isAnonymous(), not isAuthenticated() like every sibling) for the
+# same reason: this service is reached BOTH by the browser via auth-gw
+# (always carries a real JWT) AND directly by qara_cli_reg_scraper on the
+# internal docker network (never carries one at all — see
+# QARA_REG_SCRAPER_SERVICE__BASE_URL). Rejecting unauthenticated requests
+# here would break the CLI's own status/reindex/document-and-run-push
+# traffic. Real, role-based enforcement happens in code instead —
+# svc/security/AccessControl.java, applied per-controller — not at this
+# URL-pattern layer. See this repo's README, "Access control" section,
+# for the full picture (which endpoints are actually gated, and why the
+# CLI's own traffic stays untouched by design).
+micronaut:
+  security:
+    enabled: true
+    token:
+      jwt:
+        enabled: true
+        bearer:
+          enabled: true
+        signatures:
+          jwks:
+            keycloak:
+              url: ${KEYCLOAK_JWKS_URL}
+    intercept-url-map:
+      - pattern: /v1/**
+        access:
+          - isAnonymous()

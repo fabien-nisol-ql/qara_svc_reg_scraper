@@ -1,0 +1,20 @@
+# Mirrors OPC_SVC_ACCNT's own application-secure-test.yaml — validates JWTs
+# against a static local JWKS file instead of live Keycloak, so
+# svc/security/AccessControl's role-gating (admin/viewer) can be verified
+# with real, signature-verified test tokens without touching Keycloak or
+# creating any account there. Activate alongside "secure" (NOT instead of
+# it — this only overrides the signature source, "secure" still supplies
+# everything else) via MICRONAUT_ENVIRONMENTS=...,secure,secure-test, and
+# mount/generate the matching keys with
+# OPC_SVC_ACCNT's src/build/python/main/create_keys.py (same script,
+# copied nowhere here — this repo has no local copy, generate at
+# /var/lib/qaralink/jwks.json wherever this profile is actually used).
+# Never used in a real deployment — local/manual verification only.
+micronaut:
+  security:
+    token:
+      jwt:
+        signatures:
+          jwks-static:
+            test:
+              path: file:/var/lib/qaralink/jwks.json

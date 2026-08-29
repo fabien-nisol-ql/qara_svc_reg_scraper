@@ -1,0 +1,193 @@
+---
+micronaut:
+  server:
+    error:
+      include-message: ALWAYS
+    max-request-size: 5242880 #5MB
+    context-path: ${CONTEXT_PATH:/}
+---
+micronaut:
+  application:
+    name: qara-reg-scraper-svc
+endpoints:
+  all:
+    port: 8081
+    sensitive: false
+  info:
+    enabled: true
+    sensitive: false
+  env:
+    enabled: true
+    keys-visible: all
+  loggers:
+    enabled: true
+  routes:
+    enabled: true
+  health:
+    details-visible: ANONYMOUS
+    jdbc:
+      enabled: true
+---
+micronaut:
+    property:
+      naming:
+        strategy: KEBAB_CASE
+---
+micronaut:
+  serialization:
+    enabled: false
+---
+micronaut:
+  context:
+    eager-init:
+      singletons: true
+---
+micronaut:
+  security:
+    enabled: false
+---
+# Role names checked by svc/security/AccessControl.java — see this repo's
+# README "Access control" section. Same qaralink.security.* shape
+# QARA_SVC_CMPL already uses (no shared library for this yet — see
+# qara_lib_mn issue #8), minus its contributor-role (not needed here).
+qaralink:
+  security:
+    client-id: ${OIDC_CLIENT_ID:qaralink-platform}
+    admin-role: ${ADMIN_ROLE:admin}
+    viewer-role: ${VIEWER_ROLE:viewer}
+---
+# Required for startup — see the dependency comment in build.gradle.kts:
+# qara_lib_mn's NatsService needs a live connection unconditionally, even
+# though nothing in this service publishes/subscribes yet.
+nats:
+  default:
+    addresses:
+      - ${NATS_URL:nats://localhost:4222}
+    username: ${NATS_USER:}
+    password: ${NATS_PWD:}
+---
+qaralink:
+  storage:
+    local:
+      # Where qara_cli_reg_scraper's storage.local.root (its config.yaml, "./data" by default)
+      # is mounted from this service's own container — see DocumentStorageConfiguration's
+      # javadoc. Only meaningful when the CLI is actually configured with
+      # storage.backend: local; GET /v1/documents/{id}/content 404s otherwise.
+      root: ${QARA_REG_SCRAPER_STORAGE_ROOT:./data}
+
+  execution:
+    # Which WorkloadOrchestrator implementation launches scrape jobs: kubernetes | docker
+    provider: ${EXECUTION_PROVIDER:kubernetes}
+
+  # Per-workload-type image to launch, shared by every execution provider (the image isn't a
+  # Kubernetes concept, only how it's launched is). One workload type today: a full
+  # qara_cli_reg_scraper `run` invocation.
+  workloads:
+    ScraperRun:
+      image: ${QARA_REG_SCRAPER_IMAGE:qara-reg-scraper}:${QARA_REG_SCRAPER_VER:latest}
+
+  k8s:
+    jobs:
+      imagePullPolicy: ${JOB_IMAGE_PULL_POLICY:IfNotPresent}
+      shared-dir: /shared/qaralink/job-data/
+      namespace: ${JOBS_NAMESPACE:}
+      managed-by: ${micronaut.application.name}
+      ttl: ${JOBS_TTL:300}
+      template: |
+        apiVersion: batch/v1
+        kind: Job
+        spec:
+          ttlSecondsAfterFinished: ${qaralink.k8s.jobs.ttl}
+          backoffLimit: 0
+          template:
+            metadata:
+              namespace: ${qaralink.k8s.jobs.namespace}
+            spec:
+              restartPolicy: Never
+              containers:
+                - imagePullPolicy: ${qaralink.k8s.jobs.imagePullPolicy}
+                  # Whatever the qara_cli_reg_scraper container itself needs
+                  # (QARA_REG_SCRAPER_SERVICE__BASE_URL, storage credentials, ...) —
+                  # unrelated to this service's own config, supplied at deploy
+                  # time via a Secret.
+                  envFrom:
+                    - secretRef:
+                        name: ${SCRAPER_SECRETS:qara-reg-scraper-secrets}
+
+  docker:
+    jobs:
+      # This service's OWN mount of the shared volume below — used directly by
+      # its own Java code (java.nio.file.Path/Files), e.g. WorkloadConfigService's
+      # config.yaml override. Kept identical to container-shared-dir on purpose
+      # (mirrors opc_svc_ai's own documented convention: "this service and its
+      # workload Pods mount the same PVC at the same path").
+      shared-dir: ${DOCKER_JOB_SHARED_DIR:/shared/qaralink/job-data/}
+      container-shared-dir: /shared/qaralink/job-data/
+      # The Docker VOLUME NAME (not a path) mounted into spawned sibling
+      # containers — see the comment on
+      # DockerWorkloadOrchestratorConfiguration.sharedVolume for the
+      # docker-outside-of-docker reason a path can't be reused here. Must be
+      # the SAME volume mounted at shared-dir above in this service's own
+      # compose entry.
+      shared-volume: ${DOCKER_JOB_SHARED_VOLUME:qara_reg_scraper_shared}
+      network: ${DOCKER_JOB_NETWORK:}
+      env-file: ${DOCKER_JOB_ENV_FILE:}
+      # What the qara_cli_reg_scraper container itself needs (this
+      # service's own reachable URL, so the CLI can report what it
+      # scrapes back via REST) — unrelated to this service's own config,
+      # and blank by default so a fresh/dev deployment doesn't pass a
+      # broken empty URL (DockerWorkloadOrchestrator only adds it to the
+      # container's env when non-blank). NOT a generic Map here on purpose
+      # - see the comment on DockerWorkloadOrchestratorConfiguration.cliServiceBaseUrl.
+      cli-service-base-url: ${QARA_REG_SCRAPER_SERVICE__BASE_URL:}
+      auto-remove: ${DOCKER_JOB_AUTO_REMOVE:true}
+      # Grace period before a finished container is actually removed —
+      # Docker's equivalent of qaralink.k8s.jobs.ttl/ttlSecondsAfterFinished
+      # above, same 300s default (a Duration field here, not a bare
+      # integer like the k8s side's - Micronaut's Duration binder needs a
+      # unit suffix, e.g. "300s"/"5m"/"2h", same style as wait-timeout
+      # below). Without this, `docker logs`/`docker inspect` had nothing
+      # left to look at: removal used to happen the instant the workload's
+      # future completed, which for a fast (~5s) job left no time to
+      # investigate anything after the fact.
+      ttl: ${DOCKER_JOB_TTL:300s}
+      image-pull-policy: ${DOCKER_JOB_IMAGE_PULL_POLICY:IfNotPresent}
+      name-prefix: ${DOCKER_JOB_NAME_PREFIX:qara-reg-scraper-}
+      wait-timeout: ${DOCKER_JOB_WAIT_TIMEOUT:2h}
+
+  scheduler:
+    # Per-source cron expressions for automatic runs, mirroring
+    # qara_cli_reg_scraper's docker/crontab timing (one entry per source,
+    # staggered 5 minutes apart, 03:00 UTC). Empty/absent by default — a
+    # fresh deployment doesn't scrape anything until sources are configured.
+    sources: ${SCRAPER_SCHEDULE_SOURCES:}
+    # SourceRetryScheduler — entirely independent of the daily `sources`
+    # cron above. Minutes between automatic retry attempts for the SAME
+    # source, once it's known to be incomplete or its last attempt failed
+    # — also the exact retry budget handed to the CLI job as
+    # QARA_REG_SCRAPER_RETRY_BUDGET_MINUTES, so the CLI's own in-process
+    # backoff never runs longer than this scheduler would wait before
+    # trying again anyway. See qara_cli_reg_scraper's own
+    # docs/retry-and-backlog-catchup.md.
+    retry-interval-minutes: ${SCRAPER_RETRY_INTERVAL_MINUTES:60}
+    # Once a source is fully caught up (remaining == 0) AND its last run
+    # succeeded, SourceRetryScheduler stops using retry-interval-minutes
+    # and falls back to this much slower cadence instead of stopping
+    # entirely — otherwise a source that catches up would never be
+    # checked again on its own (the daily `sources` cron above is opt-in
+    # and empty by default). 1440 = once a day. Same circuit breaker
+    # applies here too: a steady-state check that starts failing still
+    # counts toward retry-max-consecutive-failures and can suspend.
+    steady-state-check-interval-minutes: ${SCRAPER_STEADY_STATE_INTERVAL_MINUTES:1440}
+    # How often SourceRetryScheduler's own tick runs — much more often than
+    # retry-interval-minutes on purpose, so a source's own nextRetryAt
+    # carries sub-hour precision (for GET /v1/retry-state's "next automatic
+    # try" value) rather than only ever landing on the hour. Cheap: only
+    # iterates the known-source registry (~7-20 rows today).
+    retry-check-cadence-minutes: ${SCRAPER_RETRY_CHECK_CADENCE_MINUTES:1}
+    # Consecutive failed automatic-retry attempts before a source is
+    # suspended (flagged for engineering review via GET /v1/retry-state)
+    # instead of retried forever — a source's own underlying technology/
+    # site having genuinely broken shouldn't retry silently until someone
+    # happens to notice.
+    retry-max-consecutive-failures: ${SCRAPER_RETRY_MAX_CONSECUTIVE_FAILURES:5}

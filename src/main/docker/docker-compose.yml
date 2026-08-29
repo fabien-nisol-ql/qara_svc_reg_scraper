@@ -1,0 +1,70 @@
+version: "3.8"
+
+services:
+  app:
+    image: com.qaralink/reg-scraper-svc
+    build:
+      context: ../../../
+      dockerfile: src/main/docker/Dockerfile
+    ports:
+      - "8080:8080"
+      - "8081:8081"
+    environment:
+      - MICRONAUT_ENVIRONMENTS=postgres,openapi,$MICRONAUT_EXTRA_ENVIRONMENTS
+      - PGDB_URL=jdbc:postgresql://db:5432/test_db
+      - POSTGRES_USER=myuser
+      - POSTGRES_PASSWORD=mypassword
+      - EXECUTION_PROVIDER=${EXECUTION_PROVIDER:-docker}
+      - QARA_REG_SCRAPER_IMAGE=${QARA_REG_SCRAPER_IMAGE:-qara-reg-scraper}
+      - QARA_REG_SCRAPER_VER=${QARA_REG_SCRAPER_VER:-latest}
+      - NATS_URL=nats://nats:4222
+      # See DocumentStorageConfiguration — must be the same directory the qara_cli_reg_scraper
+      # container itself writes to (its config.yaml storage.local.root), mounted below.
+      - QARA_REG_SCRAPER_STORAGE_ROOT=/data
+    # Docker-outside-of-docker: qaralink.execution.provider=docker (the
+    # default above) shells out to the `docker` CLI (installed in this
+    # image's own Dockerfile) to launch scrape-job containers as siblings
+    # on the HOST, via the host daemon reachable through this socket —
+    # not a nested daemon inside this container. Without this mount,
+    # `POST /v1/jobs/scrape` fails the moment it tries to run `docker ...`.
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      # Local-dev convenience: read-only mount of qara_cli_reg_scraper's own storage.local.root,
+      # assuming the usual sibling checkout layout. Override QARA_REG_SCRAPER_DATA_DIR if yours
+      # differs; this is what makes GET /v1/documents/{id}/content resolve to a real file.
+      - ${QARA_REG_SCRAPER_DATA_DIR:-../../../../qara_cli_reg_scraper/data}:/data:ro
+    depends_on:
+      - db
+      - nats
+    entrypoint: >
+      sh -c '
+        echo "Waiting for PostgreSQL...";
+        until nc -z db 5432; do
+          sleep 1;
+        done;
+        echo "PostgreSQL is up - starting app";
+        exec java -jar service.jar
+      '
+  db:
+    image: postgres:17
+    restart: always
+    environment:
+      POSTGRES_DB: test_db
+      POSTGRES_USER: myuser
+      POSTGRES_PASSWORD: mypassword
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+  nats:
+    image: nats:2.10.29-alpine
+    command: ["-js", "-m", "8222"]
+    ports:
+      - "4222:4222"
+      - "8222:8222"
+    volumes:
+      - nats-data:/data
+    restart: unless-stopped
+volumes:
+  postgres-data:
+  nats-data:

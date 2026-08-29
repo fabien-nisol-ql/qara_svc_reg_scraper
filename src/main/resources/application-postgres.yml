@@ -1,0 +1,25 @@
+jpa:
+  default:
+    naming:
+      physical-naming-strategy: org.hibernate.boot.model.naming.PhysicalNamingStrategyStandardImpl
+      implicit-naming-strategy: org.hibernate.boot.model.naming.ImplicitNamingStrategyLegacyJpaImpl
+
+micronaut:
+  data:
+    naming:
+      strategy: SNAKE_CASE
+
+datasources:
+  default:
+    driverClassName: org.postgresql.Driver
+    dialect: POSTGRES
+    schema-generate: NONE
+    url: ${PGDB_URL}
+    username: ${POSTGRES_USER}
+    password: ${POSTGRES_PASSWORD}
+
+flyway:
+  enabled: true
+  datasources:
+    default:
+      locations: classpath:migration.postgres/

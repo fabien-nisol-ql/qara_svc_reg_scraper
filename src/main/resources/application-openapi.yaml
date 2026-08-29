@@ -1,0 +1,9 @@
+micronaut:
+  router:
+    static-resources:
+      swagger:
+        paths: classpath:META-INF/swagger
+        mapping: ${CONTEXT_PATH:}/swagger/**
+      swagger-ui:
+        paths: classpath:META-INF/swagger/views/swagger-ui
+        mapping: ${CONTEXT_PATH:}/swagger-ui/**
