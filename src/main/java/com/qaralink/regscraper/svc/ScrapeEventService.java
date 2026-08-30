@@ -38,7 +38,11 @@ public class ScrapeEventService {
         return ScrapeEventDTO.from(repository.save(entity));
     }
 
-    public Page<ScrapeEventDTO> search(String regulation, String source, Pageable pageable) {
+    public Page<ScrapeEventDTO> search(String regulation, String source, String event, Pageable pageable) {
+        if (event != null) {
+            return repository.findAllByRegulationAndSourceAndEvent(regulation, source, event, pageable)
+                    .map(ScrapeEventDTO::from);
+        }
         return repository.findAllByRegulationAndSource(regulation, source, pageable).map(ScrapeEventDTO::from);
     }
 
