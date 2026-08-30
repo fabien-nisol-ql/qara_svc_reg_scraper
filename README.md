@@ -107,6 +107,12 @@ Two independent processes, two independent stores, by design:
 - `GET /v1/retry-state` (optionally `?regulation=fda`) — automatic-retry
   policy + per-source circuit-breaker state, see "Automatic retry &
   circuit breaker" below.
+- `GET /v1/markets`, `GET /v1/markets/{code}` — markets (regulation
+  namespaces) and their regulatory pathways, moved here from
+  `QARA_SVC_CMPL` (2026-08-30) — see `MarketEntity`'s own docstring for
+  why that service's own copy is untouched, and why journey-derived
+  market *statistics* (`productCount` per market/path) stayed there
+  rather than moving too.
 
 ### Job execution (`svc/workload/`)
 
