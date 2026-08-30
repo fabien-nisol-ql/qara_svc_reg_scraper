@@ -35,6 +35,8 @@ public class SourceEstimateService {
         entity.setAlreadyKnown(dto.getAlreadyKnown());
         entity.setRemaining(dto.getRemaining());
         entity.setNote(dto.getNote());
+        entity.setNextAvailableAt(dto.getNextAvailableAt());
+        entity.setNextAvailableNote(dto.getNextAvailableNote());
         SourceEstimateEntity saved = entity.getId() == null ? repository.save(entity) : repository.update(entity);
         return SourceEstimateDTO.from(saved);
     }

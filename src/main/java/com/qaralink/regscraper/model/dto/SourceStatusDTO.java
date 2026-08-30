@@ -30,4 +30,11 @@ public class SourceStatusDTO {
     private Integer totalAvailable;
     private Integer remaining;
     private String estimateNote;
+    @Schema(description = "The next UTC time this source's own host says (robots.txt Visiting-hours) "
+            + "it's next fetchable - null for the vast majority of sources. See SourceEstimateDTO.")
+    private OffsetDateTime nextAvailableAt;
+    @Schema(description = "A human-readable description of the recurring window itself (e.g. "
+            + "\"11:00 PM-5:00 AM America/New York\"), not just the one instant nextAvailableAt is. "
+            + "See SourceEstimateDTO.")
+    private String nextAvailableNote;
 }

@@ -31,7 +31,10 @@ Docker/Kubernetes job execution ported and adapted from
 - **`io.kubernetes:client-java`** / **Apache Commons Exec** – Job
   execution: a real `batch/v1 Job` (Kubernetes) or a sibling `docker run`
   (Docker, via a mounted `/var/run/docker.sock`)
-- **Docker & Docker Compose** – Local development and platform deployment
+- **Docker & Docker Compose** – Local development, and `QARA_IAC_LOCAL_DOCKER`'s
+  own deployment target specifically — not the only one; `QARA_IAC_LOCAL`
+  deploys this same service via Kubernetes/Helm instead (see the Design
+  diagram above)
 - **Gradle (Kotlin DSL)** – Build system
 - **Make** – CLI shortcut for development tasks
 
@@ -41,13 +44,13 @@ Docker/Kubernetes job execution ported and adapted from
 
 ```mermaid
 flowchart TB
-    subgraph Platform["QARA_IAC_LOCAL_DOCKER — docker compose network \"qaralink\""]
+    subgraph Platform["Deployment platform (orchestrator-agnostic — QARA_IAC_LOCAL_DOCKER's own docker compose network \"qaralink\" today; QARA_IAC_LOCAL's Kubernetes/Helm is a live sibling example, not a hypothetical one)"]
         Gateway["auth-gw\ngeneric /api/{service} routing,\nKeycloak-backed session auth"]
         Svc["qara-reg-scraper-svc (this repo)\nMicronaut REST API"]
         PG[("Postgres — db reg_scraper\nschema owned by this service's\nown Flyway migrations")]
         Sched["ScraperAutoRunScheduler\n@Scheduled cron"]
         Orch["WorkloadOrchestrator\ndocker | kubernetes\n(qaralink.execution.provider)"]
-        Sock["/var/run/docker.sock\ndocker-outside-of-docker"]
+        Sock["/var/run/docker.sock\ndocker-outside-of-docker\n(the docker provider only)"]
 
         Gateway -- "/api/reg-scraper/*" --> Svc
         Sched --> Orch
@@ -59,14 +62,17 @@ flowchart TB
     Browser["Browser / operator\nfetch via auth-gw, same-origin\nsession cookie"]
     CLI["qara_cli_reg_scraper\nephemeral container,\none process per run"]
     Manifest[("File manifest\nlocal disk / S3 / Azure Blob / SharePoint\nMANDATORY source of truth")]
-    Sources["FDA sources\neCFR, guidance, 510(k),\nrecalls, warning letters"]
+    Sources["Regulatory sources\nFDA today (eCFR, guidance, 510(k),\nrecalls, warning letters) — the CLI's own\n<regulation>:<source> namespacing (see its\nREADME) is built for more: EU, Turkey,\nCanada, Brazil, China, ..."]
 
     Browser --> Gateway
-    Sock -. spawns .-> CLI
+    Sock -. "spawns (docker provider)" .-> CLI
+    Orch -. "or: a real batch/v1 Job\n(kubernetes provider)" .-> CLI
     CLI -- "1. fetch" --> Sources
     CLI -- "2. write — always,\nnever conditional" --> Manifest
     CLI -. "3. REST upsert per event\n(retry, then hard-fail —\nin progress, see below)" .-> Svc
 ```
+
+`qaralink.execution.provider` picks this service's own job-launching mechanism (`docker` — a sibling `docker run` over `/var/run/docker.sock`, or `kubernetes` — a real `batch/v1 Job`); it's independent of, and not limited to, whichever platform actually hosts this service — `QARA_IAC_LOCAL_DOCKER` (docker compose) and `QARA_IAC_LOCAL` (Kubernetes/Helm) are today's two, with room for others later, same as the provider selection itself.
 
 Two independent processes, two independent stores, by design:
 
@@ -150,6 +156,36 @@ more often than sources are actually re-triggered is deliberate — cheap
 `source_retry_state.next_retry_at` sub-minute precision for a UI's "next
 automatic try" display, rather than only ever landing on the hour (or the
 day).
+
+**A third factor overrides both cadences above, whenever it applies:**
+`SourceEstimateEntity.nextAvailableAt` (`V5__add_next_available_at.sql`).
+qara_cli_reg_scraper's `PoliteHttpClient` reads and honors a source's own
+host's robots.txt in full now — not just `Disallow`, but the standard
+`Crawl-delay` and the non-standard `Hit-rate`/`Visiting-hours` some hosts
+publish alongside it too (confirmed live on `accessdata.fda.gov`, the
+host behind `clearances_510k`/`pma`/`hde`'s PDF fetches — see that repo's
+`robots_policy.py`/README for the full design). When a source's host
+declares a `Visiting-hours` window and the source is currently outside
+it, `qara-reg-scraper`'s own `estimate()` reports the next UTC time that
+window reopens, and `Manifest.write_estimate` pushes it here
+(`PUT /v1/source-estimates/{regulation}/{source}`, as `nextAvailableAt`)
+right after every real run — same as every other estimate field.
+
+`SourceRetryScheduler` checks this **before** deciding whether a tick is
+due: if it's set and still in the future, the tick is skipped entirely
+and `next_retry_at` is set straight to that time instead of the usual
+interval — triggering a job during a closed window would just make the
+CLI immediately no-op (it enforces the same window itself, independently,
+as the last line of defense), so there's no point spending a job launch
+to discover that. This is also why the reason is worth surfacing
+specifically rather than just letting it look like an ordinary interval
+wait: `GET /v1/status`'s own `nextAvailableAt` field (mirrors
+`SourceEstimateDTO`'s) is what a UI reads to show *why* — see
+`uix_adm_client`'s regulation-source-card.tsx, which shows "Paused until
+… — outside this source's allowed crawl window" instead of the generic
+"Next automatic try" in exactly this case. `null` for the vast majority
+of sources, whose host declares no such restriction at all — completely
+unaffected.
 
 - `model/db/SourceRetryStateEntity.java` / `SourceRetryStateRepository` /
   `svc/SourceRetryStateService.java` — the usual entity/repository/service

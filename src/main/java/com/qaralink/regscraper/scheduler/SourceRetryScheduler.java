@@ -41,6 +41,17 @@ import java.util.Optional;
  *     steady-state check that starts failing counts toward the same
  *     consecutive-failure threshold and can still suspend.
  * </ul>
+ * A third factor overrides both cadences above, whenever it applies:
+ * {@link SourceEstimateEntity#getNextAvailableAt()} — set by
+ * qara_cli_reg_scraper when a source's own host declares a robots.txt
+ * {@code Visiting-hours} window (confirmed live on
+ * {@code accessdata.fda.gov} — see that repo's {@code robots_policy.py}
+ * and README) and the source is currently outside it. Triggering a job
+ * during a closed window would just immediately no-op (the CLI enforces
+ * the same window itself), so this scheduler defers straight to that
+ * reported reopen time instead — null for the vast majority of sources,
+ * which are entirely unaffected.
+ * <p>
  * Entirely independent of {@link ScraperAutoRunScheduler}'s own daily cron
  * (opt-in via {@code qaralink.scheduler.sources}, empty/unused by
  * default) — that one, if configured, still runs on its own fixed
@@ -177,8 +188,31 @@ public class SourceRetryScheduler {
             return;
         }
 
-        int intervalMinutes = needsWork ? retryIntervalMinutes : steadyStateIntervalMinutes;
         OffsetDateTime now = OffsetDateTime.now();
+
+        // This source's own host may say (via robots.txt Visiting-hours -
+        // confirmed live on accessdata.fda.gov, see qara_cli_reg_scraper's
+        // robots_policy.py/README) that it isn't fetchable again until
+        // later than now — reported as SourceEstimateEntity.nextAvailableAt
+        // right after the last real run (Manifest.write_estimate). Trigger
+        // anyway and the CLI job would immediately no-op (RobotsDisallowed
+        // -> hard_stop) — so this is checked BEFORE the normal due-check
+        // below, deferring straight to that time instead of the usual
+        // interval, regardless of whether the normal cadence says this
+        // tick is "due". null for the vast majority of sources, which
+        // fall straight through to the unchanged logic beneath.
+        OffsetDateTime nextAvailableAt = estimate.map(SourceEstimateEntity::getNextAvailableAt).orElse(null);
+        if (nextAvailableAt != null && nextAvailableAt.isAfter(now)) {
+            if (!nextAvailableAt.equals(state.getNextRetryAt())) {
+                LOG.info("Deferring automatic check for {} until its host's own crawling window reopens at {}",
+                        qualifiedName, nextAvailableAt);
+                state.setNextRetryAt(nextAvailableAt);
+                retryStateService.save(state);
+            }
+            return;
+        }
+
+        int intervalMinutes = needsWork ? retryIntervalMinutes : steadyStateIntervalMinutes;
         if (state.getNextRetryAt() == null || !state.getNextRetryAt().isAfter(now)) {
             LOG.info("Triggering automatic {} for {} (attempt after {} consecutive failure(s))",
                     needsWork ? "retry" : "steady-state check", qualifiedName, state.getConsecutiveFailures());

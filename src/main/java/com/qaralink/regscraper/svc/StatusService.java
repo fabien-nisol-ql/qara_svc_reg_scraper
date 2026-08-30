@@ -46,6 +46,8 @@ public class StatusService {
         estimateRepository.findByRegulationAndSource(regulation, source).ifPresent(estimate -> {
             builder.totalAvailable(estimate.getTotalAvailable());
             builder.estimateNote(estimate.getNote());
+            builder.nextAvailableAt(estimate.getNextAvailableAt());
+            builder.nextAvailableNote(estimate.getNextAvailableNote());
             // Derived live from the current `documents` count above, not read back off
             // estimate.getRemaining() — that field is only as fresh as the last upsert()
             // (qara_cli_reg_scraper's pre-flight estimate step, then again once a run

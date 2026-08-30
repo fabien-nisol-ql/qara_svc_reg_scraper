@@ -44,4 +44,16 @@ public class SourceEstimateEntity {
     private Integer remaining;
 
     private String note;
+
+    // See V5__add_next_available_at.sql - the next UTC time this source's
+    // own host reopens (robots.txt Visiting-hours), when currently closed.
+    // Null for the vast majority of sources.
+    @Column(name = "next_available_at")
+    private OffsetDateTime nextAvailableAt;
+
+    // See V6__add_next_available_note.sql - a human-readable description
+    // of the RECURRING window itself (e.g. "11:00 PM-5:00 AM
+    // America/New York"), not just the one instant nextAvailableAt is.
+    @Column(name = "next_available_note")
+    private String nextAvailableNote;
 }
