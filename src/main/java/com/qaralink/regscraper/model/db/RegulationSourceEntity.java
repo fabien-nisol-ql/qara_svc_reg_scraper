@@ -38,6 +38,24 @@ public class RegulationSourceEntity {
 
     private String description;
 
+    // Each source's EFFECTIVE scraping settings, pushed by the same sync
+    // as label/description - see V10__add_regulation_source_settings.sql
+    // for why recheckAfterDays/lookbackDays being null is a real,
+    // meaningful value, not "not synced yet".
+    private Boolean enabled;
+
+    @Column(name = "requests_per_second")
+    private Double requestsPerSecond;
+
+    @Column(name = "max_new_documents_per_run")
+    private Integer maxNewDocumentsPerRun;
+
+    @Column(name = "recheck_after_days")
+    private Integer recheckAfterDays;
+
+    @Column(name = "lookback_days")
+    private Integer lookbackDays;
+
     @Column(name = "synced_at", nullable = false)
     private OffsetDateTime syncedAt;
 }

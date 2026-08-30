@@ -236,6 +236,16 @@ entirely by the CLI itself:
   the request body is upserted, and any existing row NOT in the body is
   deleted — the CLI always sends its entire known-source registry, never
   a partial list.
+- Beyond `label`/`description`, each row also carries that source's
+  **effective** scraping settings (`enabled`, `requestsPerSecond`,
+  `maxNewDocumentsPerRun`, `recheckAfterDays`, `lookbackDays`) —
+  `V10__add_regulation_source_settings.sql` — resolved by the CLI itself
+  (its own `config.yaml` override if set, else its global default), not
+  raw config values. `recheckAfterDays`/`lookbackDays` being `null` is a
+  real, meaningful value (never re-checked; not a lookback-windowed
+  source), not "not synced yet". This is what lets `GET /v1/sources`
+  show an end user what to actually expect from a source, not just what
+  it's called.
 - `ScrapeJobService#triggerSourceSync` launches
   `qara-reg-scraper sync-sources` the same way `#trigger` launches a real
   scrape — same `Workload`/orchestrator path, same `ScraperRun` image

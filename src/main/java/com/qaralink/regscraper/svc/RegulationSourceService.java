@@ -67,6 +67,11 @@ public class RegulationSourceService {
                             .build());
             entity.setLabel(dto.getLabel());
             entity.setDescription(dto.getDescription());
+            entity.setEnabled(dto.getEnabled());
+            entity.setRequestsPerSecond(dto.getRequestsPerSecond());
+            entity.setMaxNewDocumentsPerRun(dto.getMaxNewDocumentsPerRun());
+            entity.setRecheckAfterDays(dto.getRecheckAfterDays());
+            entity.setLookbackDays(dto.getLookbackDays());
             entity.setSyncedAt(now);
             return entity.getId() == null ? repository.save(entity) : repository.update(entity);
         }).toList();

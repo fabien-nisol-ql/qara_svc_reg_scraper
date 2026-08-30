@@ -44,6 +44,29 @@ public class RegulationSourceDTO {
     @Schema(description = "What this source covers.", example = "21 CFR medical device regulations")
     private String description;
 
+    @Schema(description = "Whether this source is enabled to run at all (qara_cli_reg_scraper's own "
+            + "config.yaml SourceSettings.enabled).")
+    private Boolean enabled;
+
+    @Schema(description = "Effective requests-per-second pacing this source runs at — the config.yaml "
+            + "per-source override if set, else the global default.", example = "1.0")
+    private Double requestsPerSecond;
+
+    @Schema(description = "Effective cap on how many new documents one run fetches before stopping — "
+            + "the config.yaml per-source override if set, else the global default. Null means unlimited "
+            + "(config.yaml's -1, normalized).", example = "1000")
+    private Integer maxNewDocumentsPerRun;
+
+    @Schema(description = "How many days after first capturing a document this source re-verifies it. "
+            + "Null is a real, meaningful value — this source never re-checks an already-captured "
+            + "document, not \"not synced yet\".", example = "14")
+    private Integer recheckAfterDays;
+
+    @Schema(description = "How many days back a lookback-windowed source (e.g. \"everything decided in "
+            + "the last N days\") looks. Null is a real, meaningful value — this source isn't "
+            + "lookback-windowed at all, not \"not synced yet\".", example = "30")
+    private Integer lookbackDays;
+
     @Schema(description = "When this row was last confirmed by a sync from the CLI — server-assigned, "
             + "ignored if set on a PUT request body. Absent on a request body, always present on a read.")
     private OffsetDateTime syncedAt;
@@ -55,6 +78,11 @@ public class RegulationSourceDTO {
                 .source(e.getSource())
                 .label(e.getLabel())
                 .description(e.getDescription())
+                .enabled(e.getEnabled())
+                .requestsPerSecond(e.getRequestsPerSecond())
+                .maxNewDocumentsPerRun(e.getMaxNewDocumentsPerRun())
+                .recheckAfterDays(e.getRecheckAfterDays())
+                .lookbackDays(e.getLookbackDays())
                 .syncedAt(e.getSyncedAt())
                 .build();
     }
