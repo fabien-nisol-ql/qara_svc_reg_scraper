@@ -191,3 +191,13 @@ qaralink:
     # site having genuinely broken shouldn't retry silently until someone
     # happens to notice.
     retry-max-consecutive-failures: ${SCRAPER_RETRY_MAX_CONSECUTIVE_FAILURES:5}
+    # How long a bot-block-triggered suspension (see SourceRetryScheduler's
+    # own javadoc) must sit before EVEN A MANUAL retry is allowed - unlike
+    # the generic consecutive-failures suspension above, a human clicking
+    # "Update now" seconds after a detected bot-management block is exactly
+    # the premature re-probing this whole feature exists to prevent (a
+    # human is just as capable of resetting/extending a reputation-based
+    # block's cooldown as an automatic retry is - confirmed live,
+    # 2026-08-30). Enforced server-side in ScrapeJobService.trigger, not
+    # just as a disabled button client-side - see BotBlockCooldownActiveException.
+    bot-block-cooldown-hours: ${SCRAPER_BOT_BLOCK_COOLDOWN_HOURS:24}

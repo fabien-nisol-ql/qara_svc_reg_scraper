@@ -9,7 +9,9 @@ import com.qaralink.regscraper.model.dto.JobStatus;
 import com.qaralink.regscraper.model.dto.RegulationSourceDTO;
 import com.qaralink.regscraper.svc.RegulationSourceService;
 import com.qaralink.regscraper.svc.ScrapeJobService;
+import com.qaralink.regscraper.svc.ScrapeRunService;
 import com.qaralink.regscraper.svc.SourceRetryStateService;
+import com.qaralink.regscraper.model.dto.ScrapeRunDTO;
 import io.micronaut.context.annotation.Value;
 import io.micronaut.data.model.Pageable;
 import io.micronaut.data.model.Sort;
@@ -41,7 +43,24 @@ import java.util.Optional;
  *     steady-state check that starts failing counts toward the same
  *     consecutive-failure threshold and can still suspend.
  * </ul>
- * A third factor overrides both cadences above, whenever it applies:
+ * <b>One case bypasses that threshold entirely: a detected bot-management
+ * block suspends on the very first occurrence</b>, not after several
+ * consecutive failures — checked via the latest {@link ScrapeRunDTO#getStopReason()}
+ * ({@code "bot_block"}, pushed by qara_cli_reg_scraper's own
+ * {@code BotBlockDetected}), before anything else in {@link #evaluate}.
+ * Confirmed live, 2026-08-30: continuing to automatically retry against a
+ * host mid-block plausibly resets or extends its own reputation/volume-
+ * based cooldown rather than ever letting it clear — several sources
+ * sharing one host, each independently retrying on the generic circuit
+ * breaker above for up to an hour, very likely kept a real Akamai block
+ * on accessdata.fda.gov continuously renewed instead of expiring. A human
+ * has to look at {@link SourceRetryStateEntity#getSuspendedReason()}
+ * (and {@link SourceRetryStateEntity#getSuspendedAt()}, for how long)
+ * and decide when it's safe to manually trigger a retry — same
+ * {@code POST /v1/jobs/scrape}-clears-suspension mechanism as the
+ * generic threshold above.
+ * <p>
+ * A further factor overrides both cadences above, whenever it applies:
  * {@link SourceEstimateEntity#getNextAvailableAt()} — set by
  * qara_cli_reg_scraper when a source's own host declares a robots.txt
  * {@code Visiting-hours} window (confirmed live on
@@ -99,6 +118,7 @@ public class SourceRetryScheduler {
     private final SourceEstimateRepository estimateRepository;
     private final ScrapeJobRepository jobRepository;
     private final ScrapeJobService jobService;
+    private final ScrapeRunService runService;
     private final int retryIntervalMinutes;
     private final int steadyStateIntervalMinutes;
     private final int maxConsecutiveFailures;
@@ -109,6 +129,7 @@ public class SourceRetryScheduler {
             SourceEstimateRepository estimateRepository,
             ScrapeJobRepository jobRepository,
             ScrapeJobService jobService,
+            ScrapeRunService runService,
             @Value("${qaralink.scheduler.retry-interval-minutes}") int retryIntervalMinutes,
             @Value("${qaralink.scheduler.steady-state-check-interval-minutes}") int steadyStateIntervalMinutes,
             @Value("${qaralink.scheduler.retry-max-consecutive-failures}") int maxConsecutiveFailures
@@ -118,6 +139,7 @@ public class SourceRetryScheduler {
         this.estimateRepository = estimateRepository;
         this.jobRepository = jobRepository;
         this.jobService = jobService;
+        this.runService = runService;
         this.retryIntervalMinutes = retryIntervalMinutes;
         this.steadyStateIntervalMinutes = steadyStateIntervalMinutes;
         this.maxConsecutiveFailures = maxConsecutiveFailures;
@@ -142,6 +164,36 @@ public class SourceRetryScheduler {
             return;
         }
 
+        // Checked BEFORE anything else below, and regardless of consecutiveFailures: a
+        // detected bot-management block suspends automatic retry on the very first
+        // occurrence, not after retryMaxConsecutiveFailures attempts the way every other
+        // failure kind does. Continuing to automatically retry against a host mid-block
+        // plausibly resets or extends its own reputation/volume-based cooldown rather than
+        // ever letting it clear — confirmed live, 2026-08-30: several sources sharing one
+        // host, each independently retrying for up to an hour on the generic circuit
+        // breaker, very likely kept a real Akamai block on accessdata.fda.gov continuously
+        // renewed instead of expiring. A human has to look at this and decide when it's
+        // safe to manually trigger a retry (POST /v1/jobs/scrape clears suspension, same
+        // as the generic path below) — see qara_cli_reg_scraper's BotBlockDetected and
+        // this same reasoning applied to its own in-process retry loop.
+        Optional<ScrapeRunDTO> latestRun = runService.latest(regulation, source);
+        if (latestRun.map(ScrapeRunDTO::getStopReason).filter("bot_block"::equals).isPresent()) {
+            state.setSuspended(true);
+            state.setSuspendedAt(OffsetDateTime.now());
+            state.setSuspendedDueToBotBlock(true);
+            state.setSuspendedReason(
+                    "Automatic retry stopped: " + qualifiedName + "'s last run detected a bot-management "
+                            + "block, not a transient failure — continuing to retry automatically would "
+                            + "likely keep the block from ever clearing. See GET /v1/jobs?source="
+                            + qualifiedName + " for the run's own error detail. Trigger a manual retry "
+                            + "(POST /v1/jobs/scrape) once you're ready to try again."
+            );
+            state.setNextRetryAt(null);
+            retryStateService.save(state);
+            LOG.warn("Suspending automatic retry for {}: detected bot-management block", qualifiedName);
+            return;
+        }
+
         Optional<ScrapeJobEntity> latestJob = jobRepository
                 .search(qualifiedName, Pageable.from(0, 1, Sort.of(Sort.Order.desc("submittedAt"))))
                 .getContent().stream().findFirst();
@@ -160,6 +212,8 @@ public class SourceRetryScheduler {
             state.setConsecutiveFailures(0);
             state.setSuspended(false);
             state.setSuspendedReason(null);
+            state.setSuspendedAt(null);
+            state.setSuspendedDueToBotBlock(false);
         }
 
         latestJob.ifPresent(job -> {
@@ -176,6 +230,8 @@ public class SourceRetryScheduler {
 
         if (state.getConsecutiveFailures() >= maxConsecutiveFailures) {
             state.setSuspended(true);
+            state.setSuspendedAt(OffsetDateTime.now());
+            state.setSuspendedDueToBotBlock(false);
             state.setSuspendedReason(
                     "Automatic retry stopped after " + state.getConsecutiveFailures()
                             + " consecutive failed attempts — this likely needs engineering review "

@@ -1,8 +1,10 @@
 package com.qaralink.regscraper.svc;
 
+import com.qaralink.regscraper.exceptions.BotBlockCooldownActiveException;
 import com.qaralink.regscraper.model.api.TriggerScrapeJobRequest;
 import com.qaralink.regscraper.model.db.ScrapeJobEntity;
 import com.qaralink.regscraper.model.db.ScrapeJobHistoryEntity;
+import com.qaralink.regscraper.model.db.SourceRetryStateEntity;
 import com.qaralink.regscraper.model.db.repo.ScrapeJobHistoryRepository;
 import com.qaralink.regscraper.model.db.repo.ScrapeJobRepository;
 import com.qaralink.regscraper.model.dto.JobStatus;
@@ -42,19 +44,22 @@ public class ScrapeJobService {
     private final WorkloadOrchestrator orchestrator;
     private final String executionProvider;
     private final SourceRetryStateService retryStateService;
+    private final int botBlockCooldownHours;
 
     public ScrapeJobService(
             ScrapeJobRepository jobRepository,
             ScrapeJobHistoryRepository historyRepository,
             WorkloadOrchestrator orchestrator,
             @Value("${qaralink.execution.provider}") String executionProvider,
-            SourceRetryStateService retryStateService
+            SourceRetryStateService retryStateService,
+            @Value("${qaralink.scheduler.bot-block-cooldown-hours}") int botBlockCooldownHours
     ) {
         this.jobRepository = jobRepository;
         this.historyRepository = historyRepository;
         this.orchestrator = orchestrator;
         this.executionProvider = executionProvider;
         this.retryStateService = retryStateService;
+        this.botBlockCooldownHours = botBlockCooldownHours;
     }
 
     public ScrapeJobDTO trigger(TriggerScrapeJobRequest request, String triggeredBy) {
@@ -62,6 +67,45 @@ public class ScrapeJobService {
         OffsetDateTime now = OffsetDateTime.now();
 
         if ("manual".equals(triggeredBy)) {
+            // Checked BEFORE anything else below (a separate pass over every requested
+            // source, not folded into the reset loop) so a multi-source trigger request
+            // fails atomically — refusing ONE still-cooling-down source must not have
+            // already reset a sibling source's own circuit breaker first. Not an absolute
+            // block: overrideBotBlockCooldown lets a human retry early anyway (the UI only
+            // sets it after showing a clear warning that this may extend how long the block
+            // lasts) — without it, this is the default, safe path for every OTHER caller
+            // (a scheduled job, a direct API call, a UI bug) that isn't a human who's just
+            // explicitly confirmed they understand the risk.
+            if (!Boolean.TRUE.equals(request.getOverrideBotBlockCooldown())) {
+                for (String qualifiedName : request.getSources()) {
+                    String[] parts = qualifiedName.split(":", 2);
+                    if (parts.length != 2) {
+                        continue;
+                    }
+                    Optional<SourceRetryStateEntity> state = retryStateService.find(parts[0], parts[1]);
+                    state.filter(SourceRetryStateEntity::getSuspended)
+                            .filter(SourceRetryStateEntity::getSuspendedDueToBotBlock)
+                            .filter(s -> s.getSuspendedAt() != null)
+                            .ifPresent(s -> {
+                                OffsetDateTime retryAllowedAt = s.getSuspendedAt().plusHours(botBlockCooldownHours);
+                                if (now.isBefore(retryAllowedAt)) {
+                                    long hoursLeft = java.time.Duration.between(now, retryAllowedAt).toHours() + 1;
+                                    throw new BotBlockCooldownActiveException(
+                                            qualifiedName + " was suspended after detecting a bot-management block "
+                                                    + "and can't be manually retried yet — continuing to probe a host "
+                                                    + "during an active block plausibly keeps it from ever clearing. "
+                                                    + "Wait " + hoursLeft + " more hour" + (hoursLeft == 1 ? "" : "s")
+                                                    + " (cooldown: " + botBlockCooldownHours + "h from "
+                                                    + s.getSuspendedAt() + "), or retry now with an explicit override."
+                                    );
+                                }
+                            });
+                }
+            } else {
+                LOG.warn("Manual retry for {} overrides an active bot-block cooldown (explicit human confirmation)",
+                        request.getSources());
+            }
+
             // A human re-triggering by hand is the one thing that un-sticks
             // the retry circuit breaker (see SourceRetryScheduler) — NOT the
             // daily ScraperAutoRunScheduler cron (that's routine, not a human

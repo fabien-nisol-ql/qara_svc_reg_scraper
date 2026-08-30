@@ -33,6 +33,7 @@ public class RetryStateController {
     private final int retryIntervalMinutes;
     private final int steadyStateIntervalMinutes;
     private final int maxConsecutiveFailures;
+    private final int botBlockCooldownHours;
 
     public RetryStateController(
             RegulationSourceService sourceService,
@@ -40,7 +41,8 @@ public class RetryStateController {
             AccessControl accessControl,
             @Value("${qaralink.scheduler.retry-interval-minutes}") int retryIntervalMinutes,
             @Value("${qaralink.scheduler.steady-state-check-interval-minutes}") int steadyStateIntervalMinutes,
-            @Value("${qaralink.scheduler.retry-max-consecutive-failures}") int maxConsecutiveFailures
+            @Value("${qaralink.scheduler.retry-max-consecutive-failures}") int maxConsecutiveFailures,
+            @Value("${qaralink.scheduler.bot-block-cooldown-hours}") int botBlockCooldownHours
     ) {
         this.sourceService = sourceService;
         this.retryStateService = retryStateService;
@@ -48,6 +50,7 @@ public class RetryStateController {
         this.retryIntervalMinutes = retryIntervalMinutes;
         this.steadyStateIntervalMinutes = steadyStateIntervalMinutes;
         this.maxConsecutiveFailures = maxConsecutiveFailures;
+        this.botBlockCooldownHours = botBlockCooldownHours;
     }
 
     @Get
@@ -66,6 +69,7 @@ public class RetryStateController {
                 .retryIntervalMinutes(retryIntervalMinutes)
                 .steadyStateIntervalMinutes(steadyStateIntervalMinutes)
                 .maxConsecutiveFailures(maxConsecutiveFailures)
+                .botBlockCooldownHours(botBlockCooldownHours)
                 .sources(retryStateService.allFor(knownSources))
                 .build();
     }

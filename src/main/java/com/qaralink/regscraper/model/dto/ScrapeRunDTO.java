@@ -50,6 +50,8 @@ public class ScrapeRunDTO {
     private Integer errors = 0;
     @Builder.Default
     private List<Map<String, String>> errorDetails = List.of();
+    @Schema(example = "completed | budget_reached | hard_stop | bot_block")
+    private String stopReason;
 
     public static ScrapeRunDTO from(ScrapeRunEntity e) {
         return ScrapeRunDTO.builder()
@@ -65,6 +67,7 @@ public class ScrapeRunDTO {
                 .unchanged(e.getUnchanged())
                 .errors(e.getErrors())
                 .errorDetails(e.getErrorDetails())
+                .stopReason(e.getStopReason())
                 .build();
     }
 }

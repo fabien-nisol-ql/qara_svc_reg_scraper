@@ -38,5 +38,11 @@ public class RetryStateResponseDTO {
             + "(qaralink.scheduler.retry-max-consecutive-failures).")
     private Integer maxConsecutiveFailures;
 
+    @Schema(description = "Hours a bot-block-triggered suspension must sit before even a MANUAL "
+            + "retry (POST /v1/jobs/scrape) is allowed (qaralink.scheduler.bot-block-cooldown-hours) "
+            + "- see SourceRetryStateDTO#suspendedDueToBotBlock. Enforced server-side, not just a "
+            + "UI hint.")
+    private Integer botBlockCooldownHours;
+
     private List<SourceRetryStateDTO> sources;
 }

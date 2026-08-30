@@ -57,6 +57,8 @@ public class SourceRetryStateService {
             entity.setConsecutiveFailures(0);
             entity.setSuspended(false);
             entity.setSuspendedReason(null);
+            entity.setSuspendedAt(null);
+            entity.setSuspendedDueToBotBlock(false);
             entity.setNextRetryAt(null);
             save(entity);
         });

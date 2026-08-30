@@ -46,6 +46,22 @@ public class SourceRetryStateEntity {
     @Column(name = "suspended_reason")
     private String suspendedReason;
 
+    // When `suspended` first flipped to true - lets a UI show how long a
+    // source has been sitting suspended, not just that it currently is.
+    // See V8's own migration comment for the full "why", and
+    // SourceRetryScheduler for where this actually gets set/cleared.
+    @Column(name = "suspended_at")
+    private OffsetDateTime suspendedAt;
+
+    // Distinguishes a bot-block-triggered suspension (immediate, first
+    // occurrence) from the generic consecutive-failures one - see V9's own
+    // migration comment. ScrapeJobService.trigger reads this to enforce
+    // qaralink.scheduler.bot-block-cooldown-hours before even a MANUAL
+    // retry is allowed, ONLY for this suspension kind.
+    @Column(name = "suspended_due_to_bot_block", nullable = false)
+    @Builder.Default
+    private Boolean suspendedDueToBotBlock = false;
+
     @Column(name = "last_evaluated_job_id")
     private String lastEvaluatedJobId;
 

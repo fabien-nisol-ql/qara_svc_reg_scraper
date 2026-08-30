@@ -32,4 +32,12 @@ public class TriggerScrapeJobRequest {
 
     @Schema(description = "Same as `run --lookback-days` (only meaningful for fda:clearances_510k, fda:recalls).")
     private Integer lookbackDays;
+
+    @Schema(description = "Explicit human override to retry a source suspended due to a detected "
+            + "bot-management block BEFORE qaralink.scheduler.bot-block-cooldown-hours has "
+            + "elapsed (see BotBlockCooldownActiveException) - the UI only sets this after a "
+            + "human confirms a clear warning that retrying early may extend how long the block "
+            + "lasts. false/absent (the default) means the cooldown is still enforced normally. "
+            + "Ignored for every source not currently in that specific suspended state.")
+    private Boolean overrideBotBlockCooldown;
 }

@@ -38,6 +38,7 @@ public class ScrapeRunService {
                 .unchanged(dto.getUnchanged())
                 .errors(dto.getErrors())
                 .errorDetails(dto.getErrorDetails())
+                .stopReason(dto.getStopReason())
                 .build();
         ScrapeRunEntity saved = exists ? repository.update(entity) : repository.save(entity);
         return ScrapeRunDTO.from(saved);

@@ -47,6 +47,21 @@ public class SourceRetryStateDTO {
     @Schema(description = "Why automatic retries stopped, set only when suspended is true.")
     private String suspendedReason;
 
+    @Schema(description = "When suspension began, set only when suspended is true - lets a UI "
+            + "show a human how long this has been sitting suspended (e.g. \"blocked for 47 "
+            + "minutes\"), which matters most for a bot-block-triggered suspension (immediate, "
+            + "not after several failures - see SourceRetryScheduler) since deciding when it's "
+            + "safe to manually retry needs a real sense of how stale this state is.")
+    private OffsetDateTime suspendedAt;
+
+    @Schema(description = "true when suspended was caused by a detected bot-management block "
+            + "(immediate, on the very first occurrence) rather than the generic "
+            + "consecutive-failures threshold. This suspension kind has its own manual-retry "
+            + "cooldown (qaralink.scheduler.bot-block-cooldown-hours, see "
+            + "RetryStateResponseDTO#botBlockCooldownHours) - POST /v1/jobs/scrape is refused, "
+            + "not just discouraged, until it elapses.")
+    private Boolean suspendedDueToBotBlock;
+
     public static SourceRetryStateDTO from(SourceRetryStateEntity e) {
         return SourceRetryStateDTO.builder()
                 .regulation(e.getRegulation())
@@ -55,6 +70,8 @@ public class SourceRetryStateDTO {
                 .consecutiveFailures(e.getConsecutiveFailures())
                 .suspended(e.getSuspended())
                 .suspendedReason(e.getSuspendedReason())
+                .suspendedAt(e.getSuspendedAt())
+                .suspendedDueToBotBlock(e.getSuspendedDueToBotBlock())
                 .build();
     }
 
@@ -69,6 +86,7 @@ public class SourceRetryStateDTO {
                 .consecutiveFailures(0)
                 .suspended(false)
                 .suspendedReason(null)
+                .suspendedDueToBotBlock(false)
                 .build();
     }
 }

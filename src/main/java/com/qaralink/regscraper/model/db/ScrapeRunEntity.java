@@ -64,4 +64,13 @@ public class ScrapeRunEntity {
     @Column(name = "error_details", nullable = false)
     @Builder.Default
     private List<Map<String, String>> errorDetails = List.of();
+
+    // Mirrors qara_cli_reg_scraper's RunSummary.stop_reason ("completed" |
+    // "budget_reached" | "hard_stop" | "bot_block") - see V7's own
+    // migration comment for why this was added and what reads it
+    // (SourceRetryScheduler, to react to a detected bot-management block
+    // immediately rather than waiting on the generic consecutive-failure
+    // threshold). NULL for any run pushed before this column existed.
+    @Column(name = "stop_reason")
+    private String stopReason;
 }
