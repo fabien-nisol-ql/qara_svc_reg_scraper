@@ -11,6 +11,13 @@ public interface ScrapeEventRepository extends PageableRepository<ScrapeEventEnt
 
     Page<ScrapeEventEntity> findAllByRegulationAndSource(String regulation, String source, Pageable pageable);
 
+    // Same "just the error rows, not every unchanged/new row too" reasoning as
+    // findAllByRunIdAndEvent below — needed for a source's own most-recent-error query while a
+    // run is still in progress, when there's no single stable runId to scope by yet (the CLI's
+    // own in-process retry loop can span several internal attempts, each its own runId).
+    Page<ScrapeEventEntity> findAllByRegulationAndSourceAndEvent(
+            String regulation, String source, String event, Pageable pageable);
+
     Page<ScrapeEventEntity> findAllByRunId(String runId, Pageable pageable);
 
     // Lets callers ask for just the "error" rows of one run without paging through every

@@ -35,9 +35,13 @@ public class EventController {
     @Get
     @Operation(summary = "List events for a source, or a specific run",
             description = "Requires the viewer role when authenticated (see AccessControl). `event` (e.g. "
-                    + "\"error\") further filters a `runId` lookup — the front end's \"see the error details\" "
-                    + "button uses this to fetch just the error rows for the run behind a source's \"completed "
-                    + "with N errors\" note, without paging through every unchanged/new event alongside them.")
+                    + "\"error\") filters either lookup — the front end's \"see the error details\" button uses "
+                    + "this with `runId` to fetch just the error rows for the run behind a source's \"completed "
+                    + "with N errors\" note; polled with `regulation`/`source` (no `runId`) and `sort=ts,desc` "
+                    + "while a source is actively running, to show the most recent error even before that run "
+                    + "has finished — there's no single stable \"current\" runId to scope by while a source's "
+                    + "own in-process retry loop is still going. Either way, without `event` set this pages "
+                    + "through every unchanged/new event alongside the real failures too.")
     public Page<ScrapeEventDTO> search(
             @Nullable @QueryValue String regulation,
             @Nullable @QueryValue String source,
@@ -50,6 +54,6 @@ public class EventController {
         if (runId != null) {
             return service.byRun(runId, event, pageable);
         }
-        return service.search(regulation, source, pageable);
+        return service.search(regulation, source, event, pageable);
     }
 }
